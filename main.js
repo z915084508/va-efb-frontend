@@ -27,7 +27,8 @@ const saveEvent = (id, ev) => {
 };
 
 // ===== API config (placeholder for vAMSYS via proxy) =====
-const getApiBase = () => localStorage.getItem(API_BASE_KEY) || "";
+const DEFAULT_API_BASE = "https://efb-hispafly-va.onrender.com";
+const getApiBase = () => localStorage.getItem(API_BASE_KEY) || DEFAULT_API_BASE;
 
 // ===== Mock flights =====
 const MOCK_FLIGHTS = [
@@ -730,3 +731,4 @@ function renderSettings() {
 // ===== Start =====
 window.addEventListener("hashchange", route);
 route();
+
