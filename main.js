@@ -25,7 +25,7 @@ const VAMSYS_CLIENT_ID = "485"; // 例如 "479"
 const FRONTEND_BASE_URL = "https://va-efb-frontend.onrender.com";
 
 // OAuth 回调地址（固定）
-const REDIRECT_URI = `${FRONTEND_BASE_URL}/#/oauth`;
+const OAUTH_REDIRECT_URI = `${FRONTEND_BASE_URL}/oauth`; // ✅ 不要 #/oauth
 
 // vAMSYS 授权地址（如果你们系统里是这个域名；若不同你告诉我我改）
 const VAMSYS_AUTH_URL = "https://vamsys.io/oauth/authorize";
@@ -829,3 +829,4 @@ function renderSettings() {
 /* ========== Start ========== */
 window.addEventListener("hashchange", route);
 route();
+
