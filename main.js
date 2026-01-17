@@ -3,12 +3,34 @@
 const $ = (s) => document.querySelector(s);
 const fmt = (iso) => new Date(iso).toLocaleString();
 
-// --- Session keys (UNIFIED) ---
-const TOKEN_KEY = "va_token";
+/* ========== Storage keys ========== */
+const TOKEN_KEY = "va_token";          // 我们EFB自己的登录状态（你也可以当 session）
 const USER_KEY = "va_user";
 const SEL_FLIGHT_KEY = "sel_flight";
 const API_BASE_KEY = "api_base";
 
+// PKCE 临时存储
+const PKCE_VERIFIER_KEY = "pkce_verifier";
+
+/* ========== Config ========== */
+// 你的 Proxy（Render Node 服务），用于和 VAMSYS 通信
+const DEFAULT_API_BASE = "https://efb-hispafly-va.onrender.com";
+const getApiBase = () => localStorage.getItem(API_BASE_KEY) || DEFAULT_API_BASE;
+
+// ======= 你必须改这两个：=======
+// 1) VAMSYS OAuth Client ID（你在 VAMSYS 创建 OAuth client 后得到的）
+const VAMSYS_CLIENT_ID = "485"; // 例如 "479"
+
+// 2) 你的前端地址（Render Static Site 域名，不要带最后的 /）
+const FRONTEND_BASE_URL = "https://va-efb-frontend.onrender.com";
+
+// OAuth 回调地址（固定）
+const REDIRECT_URI = `${FRONTEND_BASE_URL}/#/oauth`;
+
+// vAMSYS 授权地址（如果你们系统里是这个域名；若不同你告诉我我改）
+const VAMSYS_AUTH_URL = "https://vamsys.io/oauth/authorize";
+
+/* ========== Helpers ========== */
 const getToken = () => localStorage.getItem(TOKEN_KEY) || "";
 const setToken = (t) => localStorage.setItem(TOKEN_KEY, t);
 
@@ -26,11 +48,7 @@ const saveEvent = (id, ev) => {
   localStorage.setItem("events_" + id, JSON.stringify(list));
 };
 
-// ===== API config (placeholder for vAMSYS via proxy) =====
-const DEFAULT_API_BASE = "https://efb-hispafly-va.onrender.com";
-const getApiBase = () => localStorage.getItem(API_BASE_KEY) || DEFAULT_API_BASE;
-
-// ===== Mock flights =====
+/* ========== Mock flights ========== */
 const MOCK_FLIGHTS = [
   {
     id: "f001",
@@ -60,7 +78,7 @@ const MOCK_FLIGHTS = [
 
 let flights = [...MOCK_FLIGHTS];
 
-// ===== ACARS SIM (AUTO EVENTS) =====
+/* ========== ACARS SIM (optional) ========== */
 let __acarsTimer = null;
 let __acarsRunningFor = "";
 
@@ -68,7 +86,6 @@ function startAcarsSim(flightId) {
   stopAcarsSim();
   __acarsRunningFor = flightId;
 
-  // tweak timings here (ms)
   const plan = [
     { type: "START", delay: 0 },
     { type: "OFFBLOCK", delay: 8000 },
@@ -88,12 +105,7 @@ function startAcarsSim(flightId) {
       return;
     }
 
-    const ev = {
-      type: item.type,
-      time: new Date().toISOString(),
-      note: "SIM ACARS",
-    };
-
+    const ev = { type: item.type, time: new Date().toISOString(), note: "SIM ACARS" };
     await postEventToApi(flightId, ev);
     saveEvent(flightId, ev);
 
@@ -101,11 +113,8 @@ function startAcarsSim(flightId) {
     route();
 
     const next = plan[idx];
-    if (next) {
-      __acarsTimer = setTimeout(fire, next.delay - item.delay);
-    } else {
-      stopAcarsSim();
-    }
+    if (next) __acarsTimer = setTimeout(fire, next.delay - item.delay);
+    else stopAcarsSim();
   };
 
   __acarsTimer = setTimeout(fire, plan[0].delay);
@@ -117,7 +126,7 @@ function stopAcarsSim() {
   __acarsRunningFor = "";
 }
 
-// ===== API functions (safe placeholders) =====
+/* ========== API calls to your Proxy ========== */
 async function fetchFlights() {
   const API_BASE = getApiBase();
   if (!API_BASE) {
@@ -129,9 +138,12 @@ async function fetchFlights() {
     const res = await fetch(`${API_BASE}/api/flights`, {
       headers: {
         "Content-Type": "application/json",
+        // 这里建议以后换成真正的 access_token（由 proxy 验证）
         "X-VA-User": getUser(),
+        "X-EFB-Session": getToken(),
       },
     });
+
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (!Array.isArray(data)) throw new Error("Bad flights payload");
@@ -154,6 +166,7 @@ async function postEventToApi(flightId, ev) {
       headers: {
         "Content-Type": "application/json",
         "X-VA-User": getUser(),
+        "X-EFB-Session": getToken(),
       },
       body: JSON.stringify(ev),
     });
@@ -164,7 +177,7 @@ async function postEventToApi(flightId, ev) {
   }
 }
 
-// ===== Flight stage / progress =====
+/* ========== Flight stage/progress ========== */
 function getFlightStage(flightId) {
   const events = getEvents(flightId);
   const has = (t) => events.some((e) => e.type === t);
@@ -187,33 +200,146 @@ function renderProgressBar(step) {
         <small>Progress</small>
         <small>${pct}%</small>
       </div>
-
       <div style="height:10px; border:1px solid var(--border); border-radius:999px; overflow:hidden; margin-top:6px;">
         <div style="height:100%; width:${pct}%; background: var(--btn);"></div>
       </div>
-
       <div style="display:flex; justify-content:space-between; margin-top:6px;">
-        ${labels
-          .map((l, i) => `<small style="color:${i <= step ? "var(--text)" : "var(--muted)"}">${l}</small>`)
-          .join("")}
+        ${labels.map((l, i) => `<small style="color:${i <= step ? "var(--text)" : "var(--muted)"}">${l}</small>`).join("")}
       </div>
     </div>
   `;
 }
 
-// ===== Router =====
+/* ========== OAuth (PKCE) ========== */
+function base64urlencode(buf) {
+  return btoa(String.fromCharCode(...new Uint8Array(buf)))
+    .replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function randomString(len = 64) {
+  const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._~";
+  const arr = new Uint8Array(len);
+  crypto.getRandomValues(arr);
+  return Array.from(arr, (x) => charset[x % charset.length]).join("");
+}
+
+async function sha256(text) {
+  const enc = new TextEncoder();
+  const data = enc.encode(text);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  return hash;
+}
+
+// 点击 “Login with VAMSYS” 时调用
+async function startVamsysLogin() {
+  if (!VAMSYS_CLIENT_ID || VAMSYS_CLIENT_ID.includes("填写")) {
+    alert("请先在 main.js 顶部填写 VAMSYS_CLIENT_ID");
+    return;
+  }
+
+  const verifier = randomString(64);
+  const challenge = base64urlencode(await sha256(verifier));
+  localStorage.setItem(PKCE_VERIFIER_KEY, verifier);
+
+  const state = randomString(16);
+
+  const params = new URLSearchParams({
+    response_type: "code",
+    client_id: String(VAMSYS_CLIENT_ID),
+    redirect_uri: REDIRECT_URI,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    state,
+  });
+
+  // 跳转到 vAMSYS 登录
+  location.href = `${VAMSYS_AUTH_URL}?${params.toString()}`;
+}
+
+// vAMSYS 登录成功后，会带着 ?code=... 回到 #/oauth
+async function handleOAuthCallback() {
+  // 解析：/#/oauth?code=xxx&state=...
+  const hash = location.hash || "";
+  const qIndex = hash.indexOf("?");
+  const qs = qIndex >= 0 ? hash.slice(qIndex + 1) : "";
+  const params = new URLSearchParams(qs);
+
+  const code = params.get("code");
+  const error = params.get("error");
+
+  if (error) {
+    alert("OAuth error: " + error);
+    location.hash = "#/login";
+    return;
+  }
+  if (!code) {
+    alert("OAuth callback missing code");
+    location.hash = "#/login";
+    return;
+  }
+
+  const verifier = localStorage.getItem(PKCE_VERIFIER_KEY) || "";
+  if (!verifier) {
+    alert("Missing PKCE verifier (please retry login)");
+    location.hash = "#/login";
+    return;
+  }
+
+  // 让 proxy 去换 token（重要：不要在前端放 client_secret）
+  const API_BASE = getApiBase();
+  try {
+    shell("VA EFB · OAuth", `<div class="card" style="max-width:520px;margin:30px auto;">处理中...</div>`);
+
+    const res = await fetch(`${API_BASE}/api/oauth/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code,
+        code_verifier: verifier,
+        redirect_uri: REDIRECT_URI,
+      }),
+    });
+
+    if (!res.ok) {
+      const txt = await res.text();
+      throw new Error(`Proxy OAuth failed: HTTP ${res.status} ${txt}`);
+    }
+
+    const data = await res.json();
+    // 期望 proxy 返回：{ user: "PILOT123", session: "...." }
+    // session 你可以理解为 “你们EFB自己的 token”
+    if (data.user) setUser(data.user);
+    setToken(data.session || "vamsys-session");
+
+    localStorage.removeItem(PKCE_VERIFIER_KEY);
+
+    location.hash = "#/app/flights";
+    route();
+  } catch (e) {
+    console.error(e);
+    alert(e.message || String(e));
+    location.hash = "#/login";
+  }
+}
+
+/* ========== Router ========== */
 function route() {
   const hash = location.hash || "#/login";
   const [, page, section] = hash.split("/");
 
+  if (page === "oauth") {
+    handleOAuthCallback();
+    return;
+  }
+
+  // 未登录只能去 login
   if (!getToken() && page !== "login") {
     location.hash = "#/login";
     return;
   }
 
-  if (page === "login") {
-    renderLogin();
-  } else if (page === "app") {
+  if (page === "login") renderLogin();
+  else if (page === "app") {
     renderApp(section || "flights").catch((e) => {
       console.error(e);
       alert("App error: " + (e?.message || e));
@@ -224,7 +350,7 @@ function route() {
   }
 }
 
-// ===== Shell =====
+/* ========== Shell ========== */
 function shell(title, content) {
   const user = getUser();
   const zulu = new Date().toISOString().slice(11, 19) + "Z";
@@ -249,7 +375,6 @@ function shell(title, content) {
     };
   }
 
-  // live Zulu clock (ensure only one timer)
   if (window.__zuluTimer) clearInterval(window.__zuluTimer);
   window.__zuluTimer = setInterval(() => {
     const el = document.getElementById("clock");
@@ -260,29 +385,58 @@ function shell(title, content) {
   }, 1000);
 }
 
-// ===== Login =====
+/* ========== Login Page ========== */
 function renderLogin() {
+  const apiBase = getApiBase();
+  const apiHint = apiBase ? `Proxy: ${apiBase}` : "Proxy: OFF (mock)";
+
   shell(
     "VA EFB · Login",
     `
-    <div class="card" style="max-width:420px;margin:30px auto;">
-      <div class="k">VAMSYS USER</div>
-      <input id="user" placeholder="e.g. PILOT123" value="${getUser()}" />
-
-      <div class="k" style="margin-top:10px;">VAMSYS PASSWORD</div>
-      <input id="pass" type="password" placeholder="••••••••" />
-
-      <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
-        <button id="enter">Login</button>
-        <button class="secondary" id="reset">Reset</button>
+    <div class="card" style="max-width:520px;margin:30px auto;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div>
+          <div class="k">Welcome</div>
+          <div class="v" style="font-size:20px;font-weight:700;margin-top:4px;">VA EFB</div>
+        </div>
+        <span class="pill">${apiHint}</span>
       </div>
 
-      <p style="margin-top:10px;">
-        <small>模拟登录（不会直连 vAMSYS）。未来会用 VA 后端 Proxy。</small>
-      </p>
+      <div style="margin-top:16px;">
+        <div class="k">VAMSYS OAuth</div>
+        <button id="vamsysLogin" style="width:100%;margin-top:8px;">
+          Login with VAMSYS
+        </button>
+        <p style="margin:8px 0 0 0;">
+          <small>将跳转至 VAMSYS 官方登录页（推荐）。</small>
+        </p>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--border);margin:16px 0;" />
+
+      <div>
+        <div class="k">Mock Login (for testing)</div>
+
+        <div class="k" style="margin-top:10px;">VAMSYS USER</div>
+        <input id="user" placeholder="e.g. PILOT123" value="${getUser()}" />
+
+        <div class="k" style="margin-top:10px;">VAMSYS PASSWORD</div>
+        <input id="pass" type="password" placeholder="••••••••" />
+
+        <div style="margin-top:14px; display:flex; gap:10px; flex-wrap:wrap;">
+          <button id="enter">Mock Login</button>
+          <button class="secondary" id="reset">Reset</button>
+        </div>
+
+        <p style="margin-top:10px;">
+          <small>Mock 登录不会直连 vAMSYS，仅用于测试页面流程。</small>
+        </p>
+      </div>
     </div>
     `
   );
+
+  $("#vamsysLogin").onclick = () => startVamsysLogin();
 
   $("#enter").onclick = () => {
     const user = $("#user").value.trim();
@@ -290,17 +444,20 @@ function renderLogin() {
     if (!user || !pass) return alert("请输入 USER 和 PASSWORD");
 
     setUser(user);
-    setToken("vamsys-session");
-
+    setToken("mock-session");
     location.hash = "#/app/flights";
     route();
   };
 
   $("#reset").onclick = () => {
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
-    localStorage.removeItem(SEL_FLIGHT_KEY);
-    localStorage.removeItem(API_BASE_KEY);
+    try {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem(USER_KEY);
+      localStorage.removeItem(SEL_FLIGHT_KEY);
+      localStorage.removeItem(API_BASE_KEY);
+      localStorage.removeItem(PKCE_VERIFIER_KEY);
+    } catch (_) {}
+
     stopAcarsSim();
     alert("Reset done. Please login again.");
     location.hash = "#/login";
@@ -308,7 +465,7 @@ function renderLogin() {
   };
 }
 
-// ===== App Layout =====
+/* ========== App Layout ========== */
 async function renderApp(section = "flights") {
   await fetchFlights();
 
@@ -373,7 +530,6 @@ async function renderApp(section = "flights") {
     `
   );
 
-  // nav clicks
   document.querySelectorAll("button[data-nav]").forEach((b) => {
     b.onclick = () => {
       location.hash = `#/app/${b.dataset.nav}`;
@@ -381,7 +537,6 @@ async function renderApp(section = "flights") {
     };
   });
 
-  // selected flight info (MUST be after shell)
   const f = flights.find((x) => x.id === sel);
   if (f) {
     $("#selFlightLine").textContent = `${f.callsign} · ${f.aircraft.icao}`;
@@ -390,7 +545,6 @@ async function renderApp(section = "flights") {
     if (ph) ph.textContent = getFlightStage(f.id).label;
   }
 
-  // render section
   if (active === "flights") renderFlights(sel);
   else if (active === "briefing") renderBriefing(sel);
   else if (active === "events") renderEvents(sel);
@@ -398,7 +552,7 @@ async function renderApp(section = "flights") {
   else renderDocs();
 }
 
-// ===== Section: Flights =====
+/* ========== Sections (基本沿用你的) ========== */
 function renderFlights(selectedId) {
   const el = $("#content");
 
@@ -411,58 +565,49 @@ function renderFlights(selectedId) {
         </div>
         <div class="pill good">${flights.length} scheduled</div>
       </div>
-      <small>API: ${getApiBase() ? "ON (proxy)" : "OFF (mock)"} · ACARS SIM: ${
-        __acarsRunningFor ? "RUNNING" : "OFF"
-      }</small>
+      <small>API: ${getApiBase() ? "ON (proxy)" : "OFF (mock)"} · ACARS SIM: ${__acarsRunningFor ? "RUNNING" : "OFF"}</small>
     </div>
 
     <div class="flight-list">
-      ${flights
-        .map((f) => {
-          const isSel = f.id === selectedId;
-          const st = getFlightStage(f.id);
-          const sim = __acarsRunningFor === f.id ? `<span class="pill warn">SIM</span>` : "";
-          return `
-            <div class="card flight-card" data-flight="${f.id}" style="${
-              isSel
-                ? "border-color: rgba(31,111,235,.7); box-shadow: 0 0 0 1px rgba(31,111,235,.25) inset;"
-                : ""
-            }">
-              <div class="topline">
-                <div style="display:flex;flex-direction:column;gap:4px;">
-                  <div><strong>${f.callsign}</strong> <small>(${f.flightNumber})</small></div>
-                  <small>${f.dep.icao} → ${f.arr.icao} · ${f.aircraft.icao} (${f.aircraft.reg})</small>
-                </div>
-                <div style="display:flex; gap:8px; align-items:center;">
-                  ${sim}
-                  <span class="pill">${st.label}</span>
-                </div>
+      ${flights.map((f) => {
+        const isSel = f.id === selectedId;
+        const st = getFlightStage(f.id);
+        const sim = __acarsRunningFor === f.id ? `<span class="pill warn">SIM</span>` : "";
+        return `
+          <div class="card flight-card" data-flight="${f.id}" style="${isSel ? "border-color: rgba(31,111,235,.7); box-shadow: 0 0 0 1px rgba(31,111,235,.25) inset;" : ""}">
+            <div class="topline">
+              <div style="display:flex;flex-direction:column;gap:4px;">
+                <div><strong>${f.callsign}</strong> <small>(${f.flightNumber})</small></div>
+                <small>${f.dep.icao} → ${f.arr.icao} · ${f.aircraft.icao} (${f.aircraft.reg})</small>
               </div>
-
-              ${renderProgressBar(st.step)}
-
-              <div style="margin-top:10px;" class="row">
-                <div class="kv"><div class="k">ETD</div><div class="v">${fmt(f.etd)}</div></div>
-                <div class="kv"><div class="k">ETA</div><div class="v">${fmt(f.eta)}</div></div>
-              </div>
-
-              <div style="margin-top:10px;">
-                <div class="k">Route</div>
-                <div class="v" style="line-height:1.4">${f.route}</div>
-              </div>
-
-              <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-                <button class="secondary" data-copy="${f.id}">Copy Route</button>
-                <button data-open="${f.id}">Open Briefing</button>
+              <div style="display:flex; gap:8px; align-items:center;">
+                ${sim}
+                <span class="pill">${st.label}</span>
               </div>
             </div>
-          `;
-        })
-        .join("")}
+
+            ${renderProgressBar(st.step)}
+
+            <div style="margin-top:10px;" class="row">
+              <div class="kv"><div class="k">ETD</div><div class="v">${fmt(f.etd)}</div></div>
+              <div class="kv"><div class="k">ETA</div><div class="v">${fmt(f.eta)}</div></div>
+            </div>
+
+            <div style="margin-top:10px;">
+              <div class="k">Route</div>
+              <div class="v" style="line-height:1.4">${f.route}</div>
+            </div>
+
+            <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
+              <button class="secondary" data-copy="${f.id}">Copy Route</button>
+              <button data-open="${f.id}">Open Briefing</button>
+            </div>
+          </div>
+        `;
+      }).join("")}
     </div>
   `;
 
-  // select flight
   document.querySelectorAll("[data-flight]").forEach((card) => {
     card.onclick = () => {
       const id = card.dataset.flight;
@@ -472,7 +617,6 @@ function renderFlights(selectedId) {
     };
   });
 
-  // copy route
   document.querySelectorAll("[data-copy]").forEach((btn) => {
     btn.onclick = async (e) => {
       e.stopPropagation();
@@ -483,7 +627,6 @@ function renderFlights(selectedId) {
     };
   });
 
-  // open briefing
   document.querySelectorAll("[data-open]").forEach((btn) => {
     btn.onclick = (e) => {
       e.stopPropagation();
@@ -494,7 +637,6 @@ function renderFlights(selectedId) {
   });
 }
 
-// ===== Section: Briefing =====
 function renderBriefing(id) {
   const f = flights.find((x) => x.id === id);
   const el = $("#content");
@@ -556,7 +698,6 @@ function renderBriefing(id) {
   };
 }
 
-// ===== Section: Events =====
 async function renderEvents(id) {
   const f = flights.find((x) => x.id === id);
   const el = $("#content");
@@ -578,9 +719,7 @@ async function renderEvents(id) {
       </div>
 
       <div style="margin-top:10px; display:flex; gap:10px; flex-wrap:wrap;">
-        ${["START", "OFFBLOCK", "TAKEOFF", "LANDING", "COMPLETE"]
-          .map((t) => `<button data-ev="${t}">${t}</button>`)
-          .join("")}
+        ${["START", "OFFBLOCK", "TAKEOFF", "LANDING", "COMPLETE"].map((t) => `<button data-ev="${t}">${t}</button>`).join("")}
       </div>
 
       <div style="margin-top:10px;">
@@ -601,39 +740,17 @@ async function renderEvents(id) {
     </div>
   `;
 
-  // event buttons
   document.querySelectorAll("button[data-ev]").forEach((b) => {
     b.onclick = async () => {
-      const ev = {
-        type: b.dataset.ev,
-        time: new Date().toISOString(),
-        note: $("#evNote").value.trim(),
-      };
-
+      const ev = { type: b.dataset.ev, time: new Date().toISOString(), note: $("#evNote").value.trim() };
       await postEventToApi(id, ev);
       saveEvent(id, ev);
-
       route();
     };
   });
 
-  // ACARS SIM buttons (NOT inside the loop)
-  const s = $("#acarsStart");
-  if (s) {
-    s.onclick = () => {
-      startAcarsSim(id);
-      alert("SIM ACARS started");
-    };
-  }
-
-  const t = $("#acarsStop");
-  if (t) {
-    t.onclick = () => {
-      stopAcarsSim();
-      alert("SIM ACARS stopped");
-      route();
-    };
-  }
+  $("#acarsStart").onclick = () => { startAcarsSim(id); alert("SIM ACARS started"); };
+  $("#acarsStop").onclick = () => { stopAcarsSim(); alert("SIM ACARS stopped"); route(); };
 }
 
 function drawEvent(e) {
@@ -648,7 +765,6 @@ function drawEvent(e) {
   `;
 }
 
-// ===== Section: Docs =====
 function renderDocs() {
   const el = $("#content");
   el.innerHTML = `
@@ -657,19 +773,9 @@ function renderDocs() {
       <div class="v">SOP / Links</div>
       <p><small>你可以把常用链接放这里：ChartFox、Navigraph、VA SOP、Discord、活动通告。</small></p>
     </div>
-
-    <div class="card">
-      <div class="k">Quick links</div>
-      <ul>
-        <li><a href="#" onclick="alert('Later: open ChartFox/Navigraph'); return false;">Charts</a></li>
-        <li><a href="#" onclick="alert('Later: SOP PDF list'); return false;">SOP</a></li>
-        <li><a href="#" onclick="alert('Later: VA website'); return false;">VA Website</a></li>
-      </ul>
-    </div>
   `;
 }
 
-// ===== Section: Settings =====
 function renderSettings() {
   const el = $("#content");
   const current = getApiBase();
@@ -677,7 +783,7 @@ function renderSettings() {
   el.innerHTML = `
     <div class="card">
       <div class="k">API Base (Proxy URL)</div>
-      <div class="v">未来接 vAMSYS API v3：EFB → 你们的 Proxy → vAMSYS</div>
+      <div class="v">EFB → 你们的 Proxy → vAMSYS</div>
 
       <div style="margin-top:10px;">
         <input id="apiBase" placeholder="https://your-proxy.example.com" value="${current}" />
@@ -688,14 +794,6 @@ function renderSettings() {
         <button class="secondary" id="clearApi">Clear</button>
         <button class="secondary" id="testApi">Test /api/flights</button>
       </div>
-
-      <p style="margin-top:10px;">
-        <small>
-          留空 = 使用本地 mock。<br/>
-          填写后 = 尝试从 <code>/api/flights</code> 拉 roster。<br/>
-          （你们还没部署 Proxy 时，别填）
-        </small>
-      </p>
     </div>
   `;
 
@@ -728,7 +826,6 @@ function renderSettings() {
   };
 }
 
-// ===== Start =====
+/* ========== Start ========== */
 window.addEventListener("hashchange", route);
 route();
-
