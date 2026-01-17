@@ -1,0 +1,344 @@
+:root {
+  --bg: #0b0f14;
+  --panel: #121826;
+  --text: #e6edf3;
+  --muted: #9aa4b2;
+  --border: #223046;
+  --btn: #1f6feb;
+  --danger: #d73a49;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+}
+
+/* ===== Header ===== */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: rgba(11, 15, 20, 0.9);
+  backdrop-filter: blur(6px);
+  border-bottom: 1px solid var(--border);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+header strong {
+  font-size: 16px;
+}
+
+/* ===== Layout ===== */
+main {
+  min-height: calc(100vh - 64px); /* 减去 header 高度 */
+  padding: 16px;
+  max-width: 980px;
+  margin: 0 auto;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 14px;
+  margin: 12px 0;
+}
+
+.row {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.kv {
+  min-width: 160px;
+}
+
+.k {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.v {
+  font-size: 16px;
+  margin-top: 4px;
+}
+
+/* ===== Inputs & Buttons ===== */
+input {
+  width: 100%;
+  background: #0f1522;
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
+button {
+  background: var(--btn);
+  color: white;
+  border: none;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+button.danger {
+  background: var(--danger);
+}
+
+button:active {
+  opacity: 0.85;
+}
+
+/* ===== Text ===== */
+small {
+  color: var(--muted);
+}
+
+a {
+  color: #79c0ff;
+  text-decoration: none;
+}
+html, body {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+body {
+  -webkit-text-size-adjust: 100%;
+}
+.card {
+  width: 100%;
+  max-width: 420px;
+}
+/* ===== Force full-screen layout (Huawei/Android safe) ===== */
+html, body {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Header fixed size, main takes remaining space */
+header {
+  flex: 0 0 auto;
+}
+
+/* Main fills screen and centers content */
+main {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 16px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Make the login card not too wide */
+main .card {
+  width: 100%;
+  max-width: 420px;
+}
+html, body {
+  width: 100%;
+  height: 100%;
+}
+
+body {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
+header { flex: 0 0 auto; }
+
+main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  max-width: none;
+  margin: 0 auto;
+}
+
+main .card {
+  width: 100%;
+  max-width: 420px;
+}
+/* ===== EFB Layout (Sidebar + Content) ===== */
+:root{
+  --sidebar: #0f1522;
+  --sidebar2: #0c111b;
+  --accent: #1f6feb;
+}
+
+main{
+  /* 让 main 不再强制居中（我们进入系统界面就该是布局模式） */
+  display: block;
+  min-height: calc(100vh - 64px);
+}
+
+/* App 容器：左侧栏 + 右侧内容 */
+.efb-app{
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 12px;
+  height: calc(100vh - 64px);
+}
+
+/* 左侧导航 */
+.sidebar{
+  background: linear-gradient(180deg, var(--sidebar), var(--sidebar2));
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  overflow: auto;
+}
+
+.brand{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  padding: 6px 6px 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+
+.brand .title{
+  font-weight: 700;
+  letter-spacing: .4px;
+}
+
+.nav{
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.nav button{
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.nav button.active{
+  border-color: rgba(31,111,235,.7);
+  box-shadow: 0 0 0 1px rgba(31,111,235,.25) inset;
+}
+
+.nav small{
+  display:block;
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+/* 主内容区 */
+.content{
+  overflow: auto;
+  padding-right: 2px;
+}
+
+/* 航班卡片列表 */
+.flight-list{
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+}
+
+.flight-card{
+  cursor: pointer;
+  transition: transform .08s ease, border-color .08s ease;
+}
+.flight-card:active{
+  transform: scale(0.99);
+}
+
+.flight-card .topline{
+  display:flex;
+  align-items:center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.pill.good{ border-color: rgba(46,160,67,.5); color: #9be9a8; }
+.pill.warn{ border-color: rgba(210,153,34,.5); color: #f2cc60; }
+
+/* 平板横屏优先：竖屏时折叠侧边栏 */
+@media (max-width: 820px){
+  .efb-app{
+    grid-template-columns: 1fr;
+    height: auto;
+  }
+  .sidebar{
+    position: sticky;
+    top: 0;
+  }
+}
+/* nicer progress look */
+.progress-track{
+  height: 10px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+  margin-top: 6px;
+}
+.progress-fill{
+  height: 100%;
+  background: var(--btn);
+}
