@@ -322,13 +322,74 @@ async function handleOAuthCallback() {
   }
 }
 
+async function handleOAuthCallback() {
+  try {
+    const params = new URLSearchParams(location.search);
+    const code = params.get("code");
+    const error = params.get("error");
+
+    if (error) {
+      alert("VAMSYS OAuth error: " + error);
+      location.href = "/";
+      return;
+    }
+
+    if (!code) {
+      alert("Missing OAuth code");
+      location.href = "/";
+      return;
+    }
+
+    // 用 code 换 token（通过你的 Proxy）
+    const res = await fetch(`${getApiBase()}/api/oauth/callback`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code }),
+    });
+
+    if (!res.ok) {
+      const t = await res.text();
+      throw new Error(`OAuth callback failed: ${t}`);
+    }
+
+    const data = await res.json();
+    if (!data.token || !data.user) {
+      throw new Error("Bad OAuth response");
+    }
+
+    // 保存登录态
+    setToken(data.token);
+    setUser(data.user);
+
+    // 清理 URL，回到正常路由
+    history.replaceState({}, "", "/#/app/flights");
+    route();
+
+  } catch (e) {
+    console.error(e);
+    alert("OAuth login failed: " + e.message);
+    location.href = "/";
+  }
+}
+
+
 /* ========== Router ========== */
-function route() {
+async function route() {
+
+  // ===== 入口 1：标准 OAuth 回调（pathname）=====
+  // https://va-efb-frontend.onrender.com/oauth?code=xxx
+  if (location.pathname === "/oauth") {
+    await handleOAuthCallback();
+    return;
+  }
+
   const hash = location.hash || "#/login";
   const [, page, section] = hash.split("/");
 
+  // ===== 入口 2：Hash 回调（兼容）=====
+  // https://va-efb-frontend.onrender.com/#/oauth?code=xxx
   if (page === "oauth") {
-    handleOAuthCallback();
+    await handleOAuthCallback();
     return;
   }
 
@@ -340,15 +401,18 @@ function route() {
 
   if (page === "login") renderLogin();
   else if (page === "app") {
-    renderApp(section || "flights").catch((e) => {
+    try {
+      await renderApp(section || "flights");
+    } catch (e) {
       console.error(e);
       alert("App error: " + (e?.message || e));
       location.hash = "#/login";
-    });
+    }
   } else {
     location.hash = "#/app/flights";
   }
 }
+
 
 /* ========== Shell ========== */
 function shell(title, content) {
@@ -829,4 +893,5 @@ function renderSettings() {
 /* ========== Start ========== */
 window.addEventListener("hashchange", route);
 route();
+
 
