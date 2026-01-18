@@ -805,15 +805,16 @@ function renderSettings() {
    Router (唯一入口，不乱)
 ========================= */
 async function route() {
+  const path = location.pathname || "/";
   const hash = location.hash || "#/login";
   const [, page, section] = hash.split("/");
 
-  // OAuth callback: #/oauth?code=...
-  if (page === "oauth") {
+  // OAuth callback: /oauth?code=... or #/oauth?code=...
+  if (page === "oauth" || path.endsWith("/oauth")) {
     await handleOAuthCallback();
     return;
   }
-
+   
   // 未登录只能去 login
   if (!getToken() && page !== "login") {
     location.hash = "#/login";
@@ -843,4 +844,5 @@ async function route() {
 ========================= */
 window.addEventListener("hashchange", route);
 route();
+
 
